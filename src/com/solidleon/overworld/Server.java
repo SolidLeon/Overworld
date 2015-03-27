@@ -19,17 +19,18 @@ public class Server implements Runnable {
 	@Override
 	public void run() {
 		running = true;
+		Logging.info("Server thread started, bind socket to port '%d'...", port);
 		try (ServerSocket server = new ServerSocket(port)) {
-			System.out.println("Server listening on port " + port);
+			Logging.info("Server listening on port %d", port);
 			while (running) {
 				Socket clientSocket = null;
 				try {
 					clientSocket = server.accept();
 					new ClientThread(clientSocket).start();
 				} catch (Exception ex) {
-					System.err.println("Error creating client ...");
+					Logging.error("Error creating client!");
 					if (clientSocket != null) {
-						System.err.println("Closing socket ...");
+						Logging.error("Closing socket");
 						try {
 							clientSocket.close();
 						} catch (IOException ex2) {
@@ -39,7 +40,6 @@ public class Server implements Runnable {
 				}
 			}
 		} catch (IOException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 	}

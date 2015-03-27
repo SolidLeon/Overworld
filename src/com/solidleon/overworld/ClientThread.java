@@ -1,21 +1,34 @@
 package com.solidleon.overworld;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
+import java.nio.charset.Charset;
+import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
 
 public class ClientThread implements Runnable {
 
+	private String accountName;
+	
 	private Socket socket;
 	private Thread thread;
 	private boolean running;
 
+	private BufferedReader in;
+	private PrintWriter out;
+	
 	private StringBuilder sbData = new StringBuilder();
 	private StringBuilder sbPrint = new StringBuilder();
+	
+	private Map<String, String> properties = new HashMap<>();
 	
 	public ClientThread(Socket socket) {
 		super();
@@ -30,54 +43,56 @@ public class ClientThread implements Runnable {
 	@Override
 	public void run() {
 		running = true;
-		
 		try {
 			ClientList.getInstance().add(this);
-			System.out.println("New client thread started");
-			System.out.println("  Client connection from '" + socket.getInetAddress().getHostAddress() + "'");
+			Logging.info("New client thread started");
+			Logging.info("Client connection from '%s'", socket.getInetAddress().getHostAddress());
 
-			BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-			PrintWriter out = new PrintWriter(socket.getOutputStream());
+			in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+			out = new PrintWriter(socket.getOutputStream());
+
+			ScriptProcessor.getInstance().executeFunction(this, "scripts/commands.js", "onConnect");
 			
 			while (running) {
-				String line = readLine(in);
-				
-				if ("exit".equals(line)) {
-					send(out, "Bye!");
+				String line = readLine();
+				if (line == null) {
+					Logging.info("Remote '%s' closed connection!", socket.getInetAddress().getHostAddress());
 					break;
 				}
 				
+				ScriptProcessor.getInstance().executeProcess(this, "scripts/commands.js", line);
+				
 			}
 		} catch (Exception ex) {
-			System.err.println("!!! Exception in client thread. Disconnecting client ...");
-			ex.printStackTrace();
+			Logging.exception(ex, "!!! Exception in client thread. Disconnecting client '%s' ...", socket.getInetAddress().getHostAddress());
 		} finally {
 			if (socket != null) {
 				try {
 					socket.close();
 				} catch (IOException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
+					Logging.exception(e);
 				}
 				ClientList.getInstance().remove(this);
 			}
 		}
 	}
 	
-	private String readLine(BufferedReader in) throws IOException {
+	public String readLine() throws IOException {
 		String line = in.readLine();
-		System.out.println("RECV  '" + socket.getInetAddress().getHostAddress() + "'  '" + line + "'");
-		for (String logLine :  toHexString(line)) {
-			System.out.println(logLine);
+		if (line != null) {
+			Logging.info("RECV from '%s':  '%s'", socket.getInetAddress().getHostAddress(), line);
+			for (String logLine :  toHexString(line)) {
+				Logging.info(logLine);
+			}
 		}
 		return line;
 	}
 
-	private void send(PrintWriter out, String format, Object ...args) {
+	public void send(String format, Object ...args) {
 		String msg = String.format(format, args);
-		System.out.println("SEND  '" + socket.getInetAddress().getHostAddress() + "'  '" + msg + "'");
+		Logging.info("SEND to '%s':  '%s'", socket.getInetAddress().getHostAddress(), msg);
 		for (String logLine :  toHexString(msg)) {
-			System.out.println(logLine);
+			Logging.info(logLine);
 		}
 		out.println(msg);
 		out.flush();
@@ -114,5 +129,62 @@ public class ClientThread implements Runnable {
 			lines.add(line);
 		}
 		return lines;
+	}
+	
+	public void disconnect() {
+		running = false;
+	}
+	
+	public void writeProperty(String key, String value) {
+		properties.put(key, value);
+		if (accountName != null) {
+			File saveDirFile = new File("saves");
+			if (!saveDirFile.exists()) {
+				Logging.info("Create save directory '%s' ...", saveDirFile.getAbsolutePath());
+				saveDirFile.mkdirs();
+			}
+			File saveFile = new File(saveDirFile, accountName + ".txt");
+			List<String> write = new ArrayList<>();
+			for (Entry<String, String> entry : properties.entrySet()) {
+				write.add(entry.getKey() + "=" + entry.getValue());
+			}
+			try {
+				Logging.info("Write properties to '%s' ...", saveFile.getAbsolutePath());
+				Files.write(saveFile.toPath(), write, Charset.defaultCharset());
+			} catch (IOException e) {
+				Logging.exception(e);
+			}
+		}
+	}
+	
+	public String readProperty(String key) {
+		return properties.get(key);
+	}
+	
+	private void loadProperties() throws IOException {
+		File loadAccountFile = new File("saves/" + accountName + ".txt");
+		Logging.info("Load account from '%s'", loadAccountFile.getAbsolutePath());
+		List<String> lines = Files.readAllLines(loadAccountFile.toPath(), Charset.defaultCharset());
+		properties = new HashMap<>();
+		for (String line : lines) {
+			String key = line.substring(0, line.indexOf('='));
+			String value = line.substring(line.indexOf('=') + 1);
+			properties.put(key, value);
+		}
+	}
+	
+	public String getAccountName() {
+		return accountName;
+	}
+	
+	public void setAccountName(String accountName) {
+		Logging.info("Set account name for '%s' to '%s' ...", this.accountName, accountName);
+		this.accountName = accountName;
+		try {
+			loadProperties();
+		} catch (IOException e) {
+			Logging.exception(e, "Failed loading properties for '%s'", accountName);
+			properties = new HashMap<>();
+		}
 	}
 }

@@ -18,10 +18,12 @@ public class ClientList {
 	}
 
 	public synchronized void add(ClientThread clientThread) {
+		Logging.info("Add client thread");
 		clients.add(clientThread);
 	}
 
 	public synchronized void remove(ClientThread clientThread) {
+		Logging.info("Remove client thread");
 		clients.remove(clientThread);
 	}
 	
